@@ -5,7 +5,6 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ServiceInfo
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -71,11 +70,7 @@ class GuardService : Service(), SensorEventListener {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
+        startForeground(NOTIFICATION_ID, notification)
     }
 
     private fun stopGuard() {
@@ -110,24 +105,21 @@ class GuardService : Service(), SensorEventListener {
                 val deltaY = Math.abs(initialY - y)
                 val deltaZ = Math.abs(initialZ - z)
 
-                // If movement exceeds threshold
                 if (deltaX > MOVEMENT_THRESHOLD || deltaY > MOVEMENT_THRESHOLD || deltaZ > MOVEMENT_THRESHOLD) {
                     triggerAlarm()
-                    isInitialized = false // Reset initialization
+                    isInitialized = false
                 }
             }
         }
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
-        // Not needed
     }
 
     private fun triggerAlarm() {
         Log.d("GuardService", "Movement detected! Triggering alarm.")
         
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        
         val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
         
         val alarmNotification = NotificationCompat.Builder(this, ALARM_CHANNEL_ID)
