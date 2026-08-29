@@ -36,7 +36,6 @@ class MainActivity : ComponentActivity() {
         requestPermissionsIfNeeded()
         
         setContent {
-            // استخدام MaterialTheme الأساسي بدلاً من الثيم المخصص المحذوف
             MaterialTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -97,8 +96,6 @@ fun GuardScreen(modifier: Modifier = Modifier) {
                 .background(containerColor),
             contentAlignment = Alignment.Center
         ) {
-            // تم إزالة الأيقونات (Lock / LockOpen) لأننا أزلنا مكتبة الأيقونات
-            // تم استبدالها بنص كبير وواضح
             Text(
                 text = if (isGuardActive) "مفعل" else "متوقف",
                 fontSize = 36.sp,
