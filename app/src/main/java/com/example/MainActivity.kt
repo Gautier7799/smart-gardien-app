@@ -7,26 +7,22 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import com.example.ui.theme.MyApplicationTheme
 
 class MainActivity : ComponentActivity() {
     private val requestPermissionLauncher =
@@ -36,14 +32,17 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
         
         requestPermissionsIfNeeded()
         
         setContent {
-            MyApplicationTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    GuardScreen(modifier = Modifier.padding(innerPadding))
+            // استخدام MaterialTheme الأساسي بدلاً من الثيم المخصص المحذوف
+            MaterialTheme {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    GuardScreen()
                 }
             }
         }
@@ -86,11 +85,10 @@ fun GuardScreen(modifier: Modifier = Modifier) {
             textAlign = TextAlign.Center
         )
 
-        val icon = if (isGuardActive) Icons.Default.Lock else Icons.Default.LockOpen
         val statusText = if (isGuardActive) "الحارس نشط" else "الحارس متوقف"
         val buttonText = if (isGuardActive) "إيقاف الحارس" else "تفعيل الحارس"
-        val containerColor = if (isGuardActive) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer
-        val contentColor = if (isGuardActive) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer
+        val containerColor = if (isGuardActive) Color(0xFFBA1A1A) else MaterialTheme.colorScheme.primaryContainer
+        val contentColor = if (isGuardActive) Color.White else MaterialTheme.colorScheme.onPrimaryContainer
 
         Box(
             modifier = Modifier
@@ -99,11 +97,13 @@ fun GuardScreen(modifier: Modifier = Modifier) {
                 .background(containerColor),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = statusText,
-                modifier = Modifier.size(80.dp),
-                tint = contentColor
+            // تم إزالة الأيقونات (Lock / LockOpen) لأننا أزلنا مكتبة الأيقونات
+            // تم استبدالها بنص كبير وواضح
+            Text(
+                text = if (isGuardActive) "مفعل" else "متوقف",
+                fontSize = 36.sp,
+                fontWeight = FontWeight.Bold,
+                color = contentColor
             )
         }
         
@@ -113,7 +113,7 @@ fun GuardScreen(modifier: Modifier = Modifier) {
             text = statusText,
             fontSize = 24.sp,
             fontWeight = FontWeight.Medium,
-            color = contentColor
+            color = MaterialTheme.colorScheme.onBackground
         )
 
         Spacer(modifier = Modifier.height(48.dp))
@@ -137,10 +137,10 @@ fun GuardScreen(modifier: Modifier = Modifier) {
                 .fillMaxWidth()
                 .height(56.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = if (isGuardActive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                containerColor = if (isGuardActive) Color(0xFFBA1A1A) else MaterialTheme.colorScheme.primary
             )
         ) {
-            Text(text = buttonText, fontSize = 18.sp)
+            Text(text = buttonText, fontSize = 18.sp, color = Color.White)
         }
     }
 }
