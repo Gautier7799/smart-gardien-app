@@ -4,7 +4,6 @@ plugins {
   alias(libs.plugins.google.devtools.ksp)
   alias(libs.plugins.roborazzi)
   alias(libs.plugins.secrets)
-
 }
 
 android {
@@ -40,10 +39,6 @@ dependencies {
   implementation(platform(libs.androidx.compose.bom))
   implementation(libs.androidx.activity.compose)
   implementation(libs.androidx.compose.material.icons.core)
-  
-  // تم إيقاف مكتبة الأيقونات الضخمة لمنع الخطأ
-  // implementation(libs.androidx.compose.material.icons.extended)
-  
   implementation(libs.androidx.compose.material3)
   implementation(libs.androidx.compose.ui)
   implementation(libs.androidx.compose.ui.graphics)
@@ -52,6 +47,6 @@ dependencies {
   implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(libs.androidx.lifecycle.runtime.ktx)
 
-  // مكتبة الساعة الذكية
+  // Wearable library
   implementation("com.google.android.gms:play-services-wearable:18.1.0")
 }
