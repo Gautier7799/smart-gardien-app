@@ -29,7 +29,6 @@ import androidx.core.content.ContextCompat
 import com.example.ui.theme.MyApplicationTheme
 
 class MainActivity : ComponentActivity() {
-
     private val requestPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted: Boolean ->
             // Permission result
@@ -124,7 +123,7 @@ fun GuardScreen(modifier: Modifier = Modifier) {
                 isGuardActive = !isGuardActive
                 val intent = Intent(context, GuardService::class.java)
                 if (isGuardActive) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION.CODES.O) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         context.startForegroundService(intent)
                     } else {
                         context.startService(intent)
