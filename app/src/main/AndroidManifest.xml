@@ -13,13 +13,13 @@
         android:label="حارس الهاتف"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.DeviceDefault.DayNight">
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
         
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="حارس الهاتف"
-            android:theme="@android:style/Theme.DeviceDefault.DayNight">
+            android:theme="@android:style/Theme.Material.Light.NoActionBar">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
