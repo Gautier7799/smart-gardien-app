@@ -2,11 +2,11 @@ package com.example
 
 import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -22,18 +22,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
-    private val requestPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted: Boolean ->
-            // Permission result
-        }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        requestPermissionsIfNeeded()
         
         setContent {
             MaterialTheme {
@@ -46,20 +38,25 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-
-    private fun requestPermissionsIfNeeded() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }
-    }
 }
 
 @Composable
 fun GuardScreen(modifier: Modifier = Modifier) {
     var isGuardActive by remember { mutableStateOf(false) }
     val context = LocalContext.current
+
+    // طلب الصلاحيات الآمن داخل واجهة المستخدم لتجنب الانهيار
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        // نتيجة الصلاحية
+    }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     Column(
         modifier = modifier
@@ -77,7 +74,7 @@ fun GuardScreen(modifier: Modifier = Modifier) {
         )
         
         Text(
-            text = "سيقوم التطبيق بتنبيهك على ساعتك الذكية (عبر الإشعارات) وعند لمس هاتفك أو تحريكه.",
+            text = "سيقوم التطبيق بتنبيهك عند لمس هاتفك أو تحريكه.",
             fontSize = 16.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 64.dp),
