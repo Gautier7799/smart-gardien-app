@@ -1,6 +1,5 @@
 package com.example
 
-import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
@@ -20,10 +19,8 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import kotlin.math.sqrt
 
 class GuardService : Service(), SensorEventListener {
-
     private lateinit var sensorManager: SensorManager
     private var accelerometer: Sensor? = null
     
@@ -116,8 +113,7 @@ class GuardService : Service(), SensorEventListener {
                 // If movement exceeds threshold
                 if (deltaX > MOVEMENT_THRESHOLD || deltaY > MOVEMENT_THRESHOLD || deltaZ > MOVEMENT_THRESHOLD) {
                     triggerAlarm()
-                    // Reset initialization to avoid continuous triggering immediately
-                    isInitialized = false
+                    isInitialized = false // Reset initialization
                 }
             }
         }
@@ -146,12 +142,11 @@ class GuardService : Service(), SensorEventListener {
             .build()
             
         notificationManager.notify(2, alarmNotification)
-        
         vibratePhone()
     }
     
     private fun vibratePhone() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION.CODES.S) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
             val vibrator = vibratorManager.defaultVibrator
             vibrator.vibrate(VibrationEffect.createOneShot(1000, VibrationEffect.DEFAULT_AMPLITUDE))
