@@ -1,16 +1,20 @@
 package com.example
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,21 +26,69 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.io.PrintWriter
+import java.io.StringWriter
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
+        val prefs = getSharedPreferences("crash_prefs", Context.MODE_PRIVATE)
+        
+        // التقاط أي انهيار في الخلفية قبل أن يغلق النظام التطبيق
+        Thread.setDefaultUncaughtExceptionHandler { _, throwable ->
+            val sw = StringWriter()
+            throwable.printStackTrace(PrintWriter(sw))
+            prefs.edit().putString("last_crash", sw.toString()).apply()
+            android.os.Process.killProcess(android.os.Process.myPid())
+            System.exit(1)
+        }
+
+        // التحقق مما إذا كان هناك خطأ مسجل من المحاولة السابقة
+        val crashError = prefs.getString("last_crash", null)
+        if (crashError != null) {
+            prefs.edit().remove("last_crash").apply()
+        }
+
         setContent {
             MaterialTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    GuardScreen()
+                    if (crashError != null) {
+                        // إذا حدث انهيار سابق، اعرضه على الشاشة
+                        ErrorScreen(crashError)
+                    } else {
+                        try {
+                            GuardScreen()
+                        } catch (e: Exception) {
+                            // التقاط الأخطاء اللحظية
+                            val sw = StringWriter()
+                            e.printStackTrace(PrintWriter(sw))
+                            ErrorScreen(sw.toString())
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+fun ErrorScreen(error: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White)
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState())
+    ) {
+        Text("⚠️ تم التقاط الخطأ!", fontSize = 24.sp, color = Color.Red, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(16.dp))
+        Text("أرجوك قم بتصوير هذه الشاشة وأرسلها لي لنعرف السبب الدقيق:", fontWeight = FontWeight.Bold, color = Color.Black)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(error, fontSize = 12.sp, color = Color.DarkGray)
     }
 }
 
@@ -47,7 +99,7 @@ fun GuardScreen(modifier: Modifier = Modifier) {
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { isGranted -> }
+    ) { }
 
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
