@@ -4,6 +4,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
 import android.graphics.drawable.Icon
@@ -40,8 +41,50 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationCompat
+import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.Wearable
+import com.google.android.gms.wearable.WearableListenerService
 import kotlinx.coroutines.delay
+
+// ==========================================
+// خدمة الساعة الذكية (تعمل في الخلفية على Pixel Watch)
+// ==========================================
+class GuardWearableListenerService : WearableListenerService() {
+    override fun onMessageReceived(messageEvent: MessageEvent) {
+        super.onMessageReceived(messageEvent)
+        if (messageEvent.path == "/guard_alarm") {
+            // اهتزاز عنيف للساعة الذكية
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                    vibratorManager?.defaultVibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 500, 200, 500, 200, 1000), -1))
+                } else {
+                    val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+                    @Suppress("DEPRECATION")
+                    vibrator?.vibrate(longArrayOf(0, 500, 200, 500, 200, 1000), -1)
+                }
+            } catch (e: Exception) {}
+
+            // إشعار فوري يظهر على شاشة الساعة
+            try {
+                val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                val channelId = "watch_alert_channel"
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val channel = NotificationChannel(channelId, "تنبيهات الساعة", NotificationManager.IMPORTANCE_HIGH)
+                    notificationManager.createNotificationChannel(channel)
+                }
+                val notification = NotificationCompat.Builder(this, channelId)
+                    .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                    .setContentTitle("🚨 الهاتف يُسرق! 🚨")
+                    .setContentText("أحدهم يمسك هاتفك الآن!")
+                    .setPriority(NotificationCompat.PRIORITY_MAX)
+                    .setAutoCancel(true)
+                    .build()
+                notificationManager.notify(999, notification)
+            } catch (e: Exception) {}
+        }
+    }
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -49,28 +92,50 @@ class MainActivity : ComponentActivity() {
         
         setupAppShortcut()
         createNotificationChannel(this)
-
         val startActivated = intent?.action == "ACTION_ACTIVATE_GUARD"
 
         try {
             setContent {
                 MaterialTheme {
+                    val context = LocalContext.current
+                    // التحقق مما إذا كان التطبيق مفتوحاً على هاتف أم على ساعة Pixel Watch
+                    val isWatch = context.packageManager.hasSystemFeature(PackageManager.FEATURE_WATCH)
+
                     Surface(
                         modifier = Modifier.fillMaxSize(),
-                        color = MaterialTheme.colorScheme.background
+                        color = if (isWatch) Color.Black else MaterialTheme.colorScheme.background
                     ) {
-                        GuardScreen(
-                            initialStart = startActivated,
-                            onKeepScreenOn = { keepOn ->
-                                try {
-                                    if (keepOn) {
-                                        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                                    } else {
-                                        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                                    }
-                                } catch (e: Exception) {}
+                        if (isWatch) {
+                            // ==========================================
+                            // شاشة الساعة الذكية (Pixel Watch UI)
+                            // ==========================================
+                            Column(
+                                modifier = Modifier.fillMaxSize().padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Text("🛡️", fontSize = 48.sp)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("حارس الهاتف", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text("مستعد لتلقي الإنذار", color = Color.Gray, fontSize = 12.sp, textAlign = TextAlign.Center)
                             }
-                        )
+                        } else {
+                            // ==========================================
+                            // شاشة الهاتف (Phone UI)
+                            // ==========================================
+                            GuardScreen(
+                                initialStart = startActivated,
+                                onKeepScreenOn = { keepOn ->
+                                    try {
+                                        if (keepOn) {
+                                            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                                        } else {
+                                            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                                        }
+                                    } catch (e: Exception) {}
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -115,7 +180,7 @@ fun sendAlertToWatch(context: Context) {
         val nodeClient = Wearable.getNodeClient(context)
         val messageClient = Wearable.getMessageClient(context)
         val alertPath = "/guard_alarm"
-        val message = "🚨 إنذار! تم تحريك هاتفك 🚨".toByteArray()
+        val message = "Alarm".toByteArray()
 
         nodeClient.connectedNodes.addOnSuccessListener { nodes ->
             for (node in nodes) {
@@ -136,7 +201,6 @@ fun GuardScreen(modifier: Modifier = Modifier, initialStart: Boolean = false, on
     var soundType by remember { mutableStateOf(RingtoneManager.TYPE_ALARM) }
     var showSettings by remember { mutableStateOf(false) }
     
-    // متغيرات للاحتفاظ بمحرك الصوت لكي نتمكن من إيقافه
     var ringtone by remember { mutableStateOf<android.media.Ringtone?>(null) }
 
     val context = LocalContext.current
@@ -226,30 +290,25 @@ fun GuardScreen(modifier: Modifier = Modifier, initialStart: Boolean = false, on
 
     LaunchedEffect(isAlarmTriggered) {
         if (isAlarmTriggered) {
+            // إرسال الإشارة للساعة
             sendAlertToWatch(context)
 
-            // إرسال الإشعار المنبثق للهاتف وتجهيزه للساعات الذكية
             try {
                 val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                val wearableExtender = NotificationCompat.WearableExtender().setHintShowBackgroundOnly(false)
-                
                 val notification = NotificationCompat.Builder(context, "guard_channel")
                     .setSmallIcon(android.R.drawable.ic_dialog_alert)
                     .setContentTitle("🚨 تحذير أمني! 🚨")
                     .setContentText("تم تحريك هاتفك! الإنذار يعمل الآن.")
                     .setPriority(NotificationCompat.PRIORITY_MAX)
-                    .setDefaults(NotificationCompat.DEFAULT_ALL) // هذا السطر يجعل الإشعار يرسل أمراً صريحاً بالاهتزاز
-                    .extend(wearableExtender)
                     .setAutoCancel(true)
                     .build()
                 notificationManager.notify(1, notification)
             } catch (e: Exception) {}
 
-            // تشغيل الاهتزاز المستمر
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-                    vibratorManager?.defaultVibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 500, 200, 500, 200, 500), 0)) // 0 تعني تكرار مستمر
+                    vibratorManager?.defaultVibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 500, 200, 500, 200, 500), 0))
                 } else {
                     val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
                     @Suppress("DEPRECATION")
@@ -257,7 +316,6 @@ fun GuardScreen(modifier: Modifier = Modifier, initialStart: Boolean = false, on
                 }
             } catch (e: Exception) {}
 
-            // تشغيل الصوت
             try {
                 val alarmUri = RingtoneManager.getDefaultUri(soundType) ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                 if (alarmUri != null) {
@@ -267,9 +325,7 @@ fun GuardScreen(modifier: Modifier = Modifier, initialStart: Boolean = false, on
             } catch (e: Exception) {}
 
         } else {
-            // ---> إيقاف كل شيء فوراً عند الضغط على زر الإيقاف <---
             try { ringtone?.stop() } catch (e: Exception) {}
-            
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
@@ -279,15 +335,13 @@ fun GuardScreen(modifier: Modifier = Modifier, initialStart: Boolean = false, on
                     vibrator?.cancel()
                 }
             } catch (e: Exception) {}
-            
             try {
                 val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                notificationManager.cancel(1) // إخفاء الإشعار
+                notificationManager.cancel(1)
             } catch (e: Exception) {}
         }
     }
     
-    // إيقاف الصوت لو خرج المستخدم من التطبيق تماماً
     DisposableEffect(Unit) {
         onDispose {
             try { ringtone?.stop() } catch (e: Exception) {}
