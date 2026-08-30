@@ -1,5 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@android:color/holo_blue_light" />
-    <foreground android:drawable="@android:drawable/ic_dialog_alert" />
+    <!-- خلفية بنفسجية احترافية -->
+    <background>
+        <color android:color="#483D8B" />
+    </background>
+    
+    <!-- رسمة درع الحماية الأبيض -->
+    <foreground>
+        <vector android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+            <!-- استخدام المسار المباشر للدرع لتجنب أي مشاكل -->
+            <group android:scaleX="2.5" android:scaleY="2.5" android:translateX="24" android:translateY="24">
+                <path
+                    android:fillColor="#FFFFFF"
+                    android:pathData="M12,1L3,5v6c0,5.55 3.84,10.74 9,12c5.16,-1.26 9,-6.45 9,-12V5L12,1z M11,7h2v4h-2z M11,13h2v2h-2z"/>
+            </group>
+        </vector>
+    </foreground>
 </adaptive-icon>
