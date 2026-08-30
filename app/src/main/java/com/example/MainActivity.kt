@@ -17,7 +17,6 @@ import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
-import android.util.Log
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -105,8 +104,7 @@ class MainActivity : ComponentActivity() {
             val channel = NotificationChannel("guard_channel", name, importance).apply {
                 description = descriptionText
             }
-            val notificationManager: NotificationManager =
-                context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
         }
     }
@@ -137,13 +135,15 @@ fun GuardScreen(modifier: Modifier = Modifier, initialStart: Boolean = false, on
     var activationDelay by remember { mutableStateOf(5) }
     var soundType by remember { mutableStateOf(RingtoneManager.TYPE_ALARM) }
     var showSettings by remember { mutableStateOf(false) }
+    
+    // متغيرات للاحتفاظ بمحرك الصوت لكي نتمكن من إيقافه
+    var ringtone by remember { mutableStateOf<android.media.Ringtone?>(null) }
 
     val context = LocalContext.current
 
-    // طلب إذن الإشعارات في أندرويد 13 وما فوق
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted -> /* تم التعامل مع الإذن */ }
+    ) { }
 
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -219,9 +219,7 @@ fun GuardScreen(modifier: Modifier = Modifier, initialStart: Boolean = false, on
         }
 
         onDispose {
-            try {
-                sensorManager?.unregisterListener(listener)
-            } catch (e: Exception) {}
+            try { sensorManager?.unregisterListener(listener) } catch (e: Exception) {}
             onKeepScreenOn(false)
         }
     }
@@ -230,31 +228,36 @@ fun GuardScreen(modifier: Modifier = Modifier, initialStart: Boolean = false, on
         if (isAlarmTriggered) {
             sendAlertToWatch(context)
 
-            // إرسال الإشعار المنبثق للهاتف
+            // إرسال الإشعار المنبثق للهاتف وتجهيزه للساعات الذكية
             try {
                 val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                val wearableExtender = NotificationCompat.WearableExtender().setHintShowBackgroundOnly(false)
+                
                 val notification = NotificationCompat.Builder(context, "guard_channel")
                     .setSmallIcon(android.R.drawable.ic_dialog_alert)
                     .setContentTitle("🚨 تحذير أمني! 🚨")
                     .setContentText("تم تحريك هاتفك! الإنذار يعمل الآن.")
-                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setPriority(NotificationCompat.PRIORITY_MAX)
+                    .setDefaults(NotificationCompat.DEFAULT_ALL) // هذا السطر يجعل الإشعار يرسل أمراً صريحاً بالاهتزاز
+                    .extend(wearableExtender)
                     .setAutoCancel(true)
                     .build()
                 notificationManager.notify(1, notification)
             } catch (e: Exception) {}
 
+            // تشغيل الاهتزاز المستمر
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-                    vibratorManager?.defaultVibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 500, 200, 500, 200, 500), -1))
+                    vibratorManager?.defaultVibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 500, 200, 500, 200, 500), 0)) // 0 تعني تكرار مستمر
                 } else {
                     val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
                     @Suppress("DEPRECATION")
-                    vibrator?.vibrate(longArrayOf(0, 500, 200, 500, 200, 500), -1)
+                    vibrator?.vibrate(longArrayOf(0, 500, 200, 500, 200, 500), 0)
                 }
             } catch (e: Exception) {}
 
-            var ringtone: android.media.Ringtone? = null
+            // تشغيل الصوت
             try {
                 val alarmUri = RingtoneManager.getDefaultUri(soundType) ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                 if (alarmUri != null) {
@@ -263,13 +266,31 @@ fun GuardScreen(modifier: Modifier = Modifier, initialStart: Boolean = false, on
                 }
             } catch (e: Exception) {}
 
-            delay(5000)
+        } else {
+            // ---> إيقاف كل شيء فوراً عند الضغط على زر الإيقاف <---
+            try { ringtone?.stop() } catch (e: Exception) {}
             
             try {
-                ringtone?.stop()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                    vibratorManager?.defaultVibrator?.cancel()
+                } else {
+                    val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+                    vibrator?.cancel()
+                }
             } catch (e: Exception) {}
             
-            isAlarmTriggered = false
+            try {
+                val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                notificationManager.cancel(1) // إخفاء الإشعار
+            } catch (e: Exception) {}
+        }
+    }
+    
+    // إيقاف الصوت لو خرج المستخدم من التطبيق تماماً
+    DisposableEffect(Unit) {
+        onDispose {
+            try { ringtone?.stop() } catch (e: Exception) {}
         }
     }
 
