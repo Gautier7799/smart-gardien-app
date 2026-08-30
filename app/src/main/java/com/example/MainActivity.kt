@@ -1,6 +1,10 @@
 package com.example
 
 import android.content.Context
+import android.content.Intent
+import android.content.pm.ShortcutInfo
+import android.content.pm.ShortcutManager
+import android.graphics.drawable.Icon
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -36,6 +40,13 @@ import kotlinx.coroutines.delay
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // إعداد اختصار التطبيق (عند الضغط مطولاً على الأيقونة)
+        setupAppShortcut()
+
+        // التحقق مما إذا تم فتح التطبيق عبر الاختصار السريع
+        val startActivated = intent?.action == "ACTION_ACTIVATE_GUARD"
+
         try {
             setContent {
                 MaterialTheme {
@@ -44,6 +55,7 @@ class MainActivity : ComponentActivity() {
                         color = MaterialTheme.colorScheme.background
                     ) {
                         GuardScreen(
+                            initialStart = startActivated,
                             onKeepScreenOn = { keepOn ->
                                 try {
                                     if (keepOn) {
@@ -61,13 +73,32 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "حدث خطأ وتم تجاوزه!", Toast.LENGTH_LONG).show()
         }
     }
+
+    private fun setupAppShortcut() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
+            try {
+                val shortcutManager = getSystemService(ShortcutManager::class.java)
+                val shortcut = ShortcutInfo.Builder(this, "id_activate_guard")
+                    .setShortLabel("تفعيل الحارس")
+                    .setLongLabel("تفعيل حارس الهاتف فوراً")
+                    .setIcon(Icon.createWithResource(this, R.mipmap.ic_launcher))
+                    .setIntent(Intent(this, MainActivity::class.java).apply {
+                        action = "ACTION_ACTIVATE_GUARD"
+                    })
+                    .build()
+                shortcutManager?.dynamicShortcuts = listOf(shortcut)
+            } catch (e: Exception) {
+                // تجاهل إذا لم يدعم الهاتف الاختصارات
+            }
+        }
+    }
 }
 
 @Composable
-fun GuardScreen(modifier: Modifier = Modifier, onKeepScreenOn: (Boolean) -> Unit) {
+fun GuardScreen(modifier: Modifier = Modifier, initialStart: Boolean = false, onKeepScreenOn: (Boolean) -> Unit) {
     var isGuardActive by remember { mutableStateOf(false) }
     var isAlarmTriggered by remember { mutableStateOf(false) }
-    var isCountingDown by remember { mutableStateOf(false) }
+    var isCountingDown by remember { mutableStateOf(initialStart) }
     var remainingTime by remember { mutableStateOf(0) }
     
     // إعدادات التطبيق
@@ -168,7 +199,6 @@ fun GuardScreen(modifier: Modifier = Modifier, onKeepScreenOn: (Boolean) -> Unit
 
             var ringtone: android.media.Ringtone? = null
             try {
-                // استخدام الصوت الذي اختاره المستخدم من الإعدادات
                 val alarmUri = RingtoneManager.getDefaultUri(soundType) ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                 if (alarmUri != null) {
                     ringtone = RingtoneManager.getRingtone(context, alarmUri)
@@ -225,7 +255,6 @@ fun GuardScreen(modifier: Modifier = Modifier, onKeepScreenOn: (Boolean) -> Unit
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        // زر الإعدادات في أعلى الشاشة
         IconButton(
             onClick = { showSettings = true },
             modifier = Modifier
@@ -260,7 +289,6 @@ fun GuardScreen(modifier: Modifier = Modifier, onKeepScreenOn: (Boolean) -> Unit
                 modifier = Modifier.size(200.dp).clip(CircleShape).background(containerColor),
                 contentAlignment = Alignment.Center
             ) {
-                // عرض الأرقام داخل الدائرة أثناء العد التنازلي
                 val circleText = if (isAlarmTriggered) "إنذار!" else if (isGuardActive) "مفعل" else if (isCountingDown) "$remainingTime" else "متوقف"
                 Text(text = circleText, fontSize = if (isCountingDown) 64.sp else 36.sp, fontWeight = FontWeight.Bold, color = contentColor)
             }
