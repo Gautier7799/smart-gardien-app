@@ -43,19 +43,19 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationCompat
+import com.google.android.gms.wearable.MessageClient
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.Wearable
 import com.google.android.gms.wearable.WearableListenerService
 import kotlinx.coroutines.delay
 
 // ==========================================
-// خدمة الساعة الذكية (تعمل في الخلفية على Pixel Watch)
+// خدمة الساعة الذكية (لتلقي الإنذار وهي مغلقة)
 // ==========================================
 class GuardWearableListenerService : WearableListenerService() {
     override fun onMessageReceived(messageEvent: MessageEvent) {
         super.onMessageReceived(messageEvent)
         if (messageEvent.path == "/guard_alarm") {
-            // 1. فتح شاشة الساعة بقوة (الشاشة الحمراء)
             val intent = Intent(this, MainActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
                 putExtra("WATCH_ALARM_TRIGGERED", true)
@@ -65,6 +65,19 @@ class GuardWearableListenerService : WearableListenerService() {
     }
 }
 
+// دالة مشتركة لإرسال الأوامر بين الهاتف والساعة
+fun sendMessageToAllNodes(context: Context, path: String) {
+    try {
+        val nodeClient = Wearable.getNodeClient(context)
+        val messageClient = Wearable.getMessageClient(context)
+        nodeClient.connectedNodes.addOnSuccessListener { nodes ->
+            for (node in nodes) {
+                messageClient.sendMessage(node.id, path, ByteArray(0))
+            }
+        }
+    } catch (e: Exception) {}
+}
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,32 +85,39 @@ class MainActivity : ComponentActivity() {
         setupAppShortcut()
         createNotificationChannel(this)
         val startActivated = intent?.action == "ACTION_ACTIVATE_GUARD"
-        
-        // التحقق مما إذا كان التطبيق قد تم فتحه بواسطة خدمة الإنذار الخاصة بالساعة
         val isAlarmTriggeredFromService = intent?.getBooleanExtra("WATCH_ALARM_TRIGGERED", false) ?: false
 
         try {
             setContent {
                 MaterialTheme {
                     val context = LocalContext.current
-                    // التحقق مما إذا كان التطبيق مفتوحاً على هاتف أم على ساعة Pixel Watch
                     val isWatch = context.packageManager.hasSystemFeature(PackageManager.FEATURE_WATCH)
-                    
-                    // حالة الإنذار الخاصة بشاشة الساعة
                     var watchAlarmActive by remember { mutableStateOf(isAlarmTriggeredFromService) }
-                    
-                    // مشغل الصوت للساعة
                     var watchMediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+
+                    // مستمع الأوامر الخاص بالساعة الذكية
+                    if (isWatch) {
+                        val messageClient = Wearable.getMessageClient(context)
+                        DisposableEffect(Unit) {
+                            val listener = MessageClient.OnMessageReceivedListener { event ->
+                                when (event.path) {
+                                    "/guard_alarm" -> watchAlarmActive = true
+                                    "/stop_alarm" -> watchAlarmActive = false
+                                }
+                            }
+                            messageClient.addListener(listener)
+                            onDispose { messageClient.removeListener(listener) }
+                        }
+                    }
 
                     // نظام إنذار الساعة الذكية (الرنين والاهتزاز العنيف)
                     LaunchedEffect(watchAlarmActive) {
                         if (watchAlarmActive && isWatch) {
-                            // أ. اهتزاز عنيف ومختلف للساعة (SOS Pattern)
                             try {
-                                val pattern = longArrayOf(0, 300, 100, 300, 100, 300, 300, 800, 300, 800, 300, 800)
+                                val pattern = longArrayOf(0, 300, 100, 300, 100, 300, 300, 800, 300, 800)
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                                     val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-                                    vibratorManager?.defaultVibrator?.vibrate(VibrationEffect.createWaveform(pattern, 0)) // 0 = تكرار مستمر
+                                    vibratorManager?.defaultVibrator?.vibrate(VibrationEffect.createWaveform(pattern, 0))
                                 } else {
                                     val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
                                     @Suppress("DEPRECATION")
@@ -105,7 +125,6 @@ class MainActivity : ComponentActivity() {
                                 }
                             } catch (e: Exception) {}
 
-                            // ب. رنين صوتي من سماعة الساعة الذكية
                             try {
                                 val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM) ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
                                 watchMediaPlayer = MediaPlayer().apply {
@@ -122,7 +141,6 @@ class MainActivity : ComponentActivity() {
                                 }
                             } catch (e: Exception) {}
                         } else if (!watchAlarmActive && isWatch) {
-                            // إيقاف الاهتزاز والرنين في الساعة عند الضغط على "إخفاء"
                             try {
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                                     val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
@@ -147,46 +165,59 @@ class MainActivity : ComponentActivity() {
                     ) {
                         if (isWatch) {
                             // ==========================================
-                            // شاشة الساعة الذكية (Pixel Watch UI)
+                            // واجهة الساعة الذكية (أزرار التحكم عن بعد)
                             // ==========================================
-                            if (watchAlarmActive) {
-                                // شاشة الإنذار الحمراء على الساعة
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(Color(0xFFBA1A1A))
-                                        .padding(16.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Text("🚨", fontSize = 48.sp)
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text("تحذير أمني!", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                                    Text("هاتفك يتحرك!", color = Color.White, fontSize = 14.sp, textAlign = TextAlign.Center)
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(if (watchAlarmActive) Color(0xFFBA1A1A) else Color.Black)
+                                    .padding(8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                if (watchAlarmActive) {
+                                    Text("🚨", fontSize = 32.sp)
+                                    Text("هاتفك يتحرك!", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                                     Spacer(modifier = Modifier.height(16.dp))
                                     Button(
-                                        onClick = { watchAlarmActive = false },
+                                        onClick = {
+                                            watchAlarmActive = false
+                                            sendMessageToAllNodes(context, "/stop_alarm")
+                                        },
                                         colors = ButtonDefaults.buttonColors(containerColor = Color.White)
                                     ) {
-                                        Text("إخفاء الإنذار", color = Color.Red, fontWeight = FontWeight.Bold)
+                                        Text("إيقاف الكل", color = Color.Red, fontWeight = FontWeight.Bold)
                                     }
-                                }
-                            } else {
-                                // شاشة الاستعداد العادية للساعة
-                                Column(
-                                    modifier = Modifier.fillMaxSize().padding(16.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Text("🛡️", fontSize = 48.sp)
+                                } else {
+                                    Text("🛡️", fontSize = 24.sp)
+                                    Text("التحكم بالحارس", color = Color.LightGray, fontSize = 12.sp)
                                     Spacer(modifier = Modifier.height(8.dp))
-                                    Text("حارس الهاتف", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                                    Text("مستعد لتلقي الإنذار", color = Color.Gray, fontSize = 12.sp, textAlign = TextAlign.Center)
+                                    Button(
+                                        onClick = {
+                                            sendMessageToAllNodes(context, "/start_guard")
+                                            Toast.makeText(context, "تم إرسال أمر التفعيل", Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier.height(36.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                                    ) {
+                                        Text("تفعيل", color = Color.White)
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Button(
+                                        onClick = {
+                                            sendMessageToAllNodes(context, "/stop_alarm")
+                                            Toast.makeText(context, "تم إرسال الإيقاف", Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier.height(36.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
+                                    ) {
+                                        Text("إيقاف", color = Color.White)
+                                    }
                                 }
                             }
                         } else {
                             // ==========================================
-                            // شاشة الهاتف (Phone UI)
+                            // واجهة الهاتف
                             // ==========================================
                             GuardScreen(
                                 initialStart = startActivated,
@@ -241,21 +272,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-fun sendAlertToWatch(context: Context) {
-    try {
-        val nodeClient = Wearable.getNodeClient(context)
-        val messageClient = Wearable.getMessageClient(context)
-        val alertPath = "/guard_alarm"
-        val message = "🚨 إنذار! تم تحريك هاتفك 🚨".toByteArray()
-
-        nodeClient.connectedNodes.addOnSuccessListener { nodes ->
-            for (node in nodes) {
-                messageClient.sendMessage(node.id, alertPath, message)
-            }
-        }
-    } catch (e: Exception) {}
-}
-
 @Composable
 fun GuardScreen(modifier: Modifier = Modifier, initialStart: Boolean = false, onKeepScreenOn: (Boolean) -> Unit) {
     var isGuardActive by remember { mutableStateOf(false) }
@@ -268,8 +284,28 @@ fun GuardScreen(modifier: Modifier = Modifier, initialStart: Boolean = false, on
     var showSettings by remember { mutableStateOf(false) }
     
     var ringtone by remember { mutableStateOf<android.media.Ringtone?>(null) }
-
     val context = LocalContext.current
+
+    // مستمع الأوامر الواردة من الساعة (للهاتف)
+    val messageClient = Wearable.getMessageClient(context)
+    DisposableEffect(Unit) {
+        val listener = MessageClient.OnMessageReceivedListener { event ->
+            when (event.path) {
+                "/start_guard" -> {
+                    if (!isGuardActive && !isAlarmTriggered && !isCountingDown) {
+                        isCountingDown = true
+                    }
+                }
+                "/stop_alarm" -> {
+                    isGuardActive = false
+                    isCountingDown = false
+                    isAlarmTriggered = false
+                }
+            }
+        }
+        messageClient.addListener(listener)
+        onDispose { messageClient.removeListener(listener) }
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -356,7 +392,8 @@ fun GuardScreen(modifier: Modifier = Modifier, initialStart: Boolean = false, on
 
     LaunchedEffect(isAlarmTriggered) {
         if (isAlarmTriggered) {
-            sendAlertToWatch(context)
+            // إخبار الساعة بأن الإنذار قد انطلق
+            sendMessageToAllNodes(context, "/guard_alarm")
 
             try {
                 val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -499,6 +536,8 @@ fun GuardScreen(modifier: Modifier = Modifier, initialStart: Boolean = false, on
                         isGuardActive = false
                         isCountingDown = false
                         isAlarmTriggered = false
+                        // إرسال أمر الإيقاف للساعة عند الضغط من الهاتف
+                        sendMessageToAllNodes(context, "/stop_alarm")
                     } else {
                         isCountingDown = true
                     }
