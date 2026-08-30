@@ -1,20 +1,22 @@
 package com.example
 
-import android.Manifest
 import android.content.Context
-import android.content.Intent
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.media.RingtoneManager
 import android.os.Build
 import android.os.Bundle
-import android.util.Log
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,49 +28,29 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import java.io.PrintWriter
-import java.io.StringWriter
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        val prefs = getSharedPreferences("crash_prefs", Context.MODE_PRIVATE)
-        
-        // التقاط أي انهيار في الخلفية قبل أن يغلق النظام التطبيق
-        Thread.setDefaultUncaughtExceptionHandler { _, throwable ->
-            val sw = StringWriter()
-            throwable.printStackTrace(PrintWriter(sw))
-            prefs.edit().putString("last_crash", sw.toString()).apply()
-            android.os.Process.killProcess(android.os.Process.myPid())
-            System.exit(1)
-        }
-
-        // التحقق مما إذا كان هناك خطأ مسجل من المحاولة السابقة
-        val crashError = prefs.getString("last_crash", null)
-        if (crashError != null) {
-            prefs.edit().remove("last_crash").apply()
-        }
-
         setContent {
             MaterialTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    if (crashError != null) {
-                        // إذا حدث انهيار سابق، اعرضه على الشاشة
-                        ErrorScreen(crashError)
-                    } else {
-                        try {
-                            GuardScreen()
-                        } catch (e: Exception) {
-                            // التقاط الأخطاء اللحظية
-                            val sw = StringWriter()
-                            e.printStackTrace(PrintWriter(sw))
-                            ErrorScreen(sw.toString())
+                    GuardScreen(
+                        onKeepScreenOn = { keepOn ->
+                            if (keepOn) {
+                                // منع الشاشة من الانطفاء أثناء تفعيل الحارس
+                                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                            } else {
+                                // السماح للشاشة بالانطفاء عند الإيقاف
+                                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                            }
                         }
-                    }
+                    )
                 }
             }
         }
@@ -76,37 +58,93 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun ErrorScreen(error: String) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.White)
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState())
-    ) {
-        Text("⚠️ تم التقاط الخطأ!", fontSize = 24.sp, color = Color.Red, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(16.dp))
-        Text("أرجوك قم بتصوير هذه الشاشة وأرسلها لي لنعرف السبب الدقيق:", fontWeight = FontWeight.Bold, color = Color.Black)
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(error, fontSize = 12.sp, color = Color.DarkGray)
-    }
-}
-
-@Composable
-fun GuardScreen(modifier: Modifier = Modifier) {
+fun GuardScreen(modifier: Modifier = Modifier, onKeepScreenOn: (Boolean) -> Unit) {
     var isGuardActive by remember { mutableStateOf(false) }
+    var isAlarmTriggered by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { }
+    // 1. مراقبة مستشعر الحركة مباشرة من الواجهة
+    DisposableEffect(isGuardActive) {
+        onKeepScreenOn(isGuardActive)
 
-    LaunchedEffect(Unit) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        
+        var initialX = 0f
+        var initialY = 0f
+        var initialZ = 0f
+        var isInitialized = false
+        val threshold = 2.5f
+
+        val listener = object : SensorEventListener {
+            override fun onSensorChanged(event: SensorEvent?) {
+                if (!isGuardActive || event == null) return
+                if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
+                    val x = event.values[0]
+                    val y = event.values[1]
+                    val z = event.values[2]
+
+                    if (!isInitialized) {
+                        initialX = x
+                        initialY = y
+                        initialZ = z
+                        isInitialized = true
+                    } else {
+                        val deltaX = Math.abs(initialX - x)
+                        val deltaY = Math.abs(initialY - y)
+                        val deltaZ = Math.abs(initialZ - z)
+
+                        // إذا تحرك الهاتف يتم إطلاق الإنذار وإيقاف الحارس
+                        if (deltaX > threshold || deltaY > threshold || deltaZ > threshold) {
+                            isAlarmTriggered = true
+                            isGuardActive = false
+                        }
+                    }
+                }
+            }
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+        }
+
+        if (isGuardActive) {
+            accelerometer?.let {
+                sensorManager.registerListener(listener, it, SensorManager.SENSOR_DELAY_NORMAL)
+            }
+        }
+
+        onDispose {
+            sensorManager.unregisterListener(listener)
+            onKeepScreenOn(false)
         }
     }
 
+    // 2. إطلاق صوت الإنذار والاهتزاز عند اكتشاف حركة
+    LaunchedEffect(isAlarmTriggered) {
+        if (isAlarmTriggered) {
+            // تشغيل الاهتزاز
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+                val vibrator = vibratorManager.defaultVibrator
+                vibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 500, 200, 500, 200, 500), -1))
+            } else {
+                val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(longArrayOf(0, 500, 200, 500, 200, 500), -1)
+            }
+
+            // تشغيل الصوت المزعج (المنبه)
+            val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM) 
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+            val ringtone = RingtoneManager.getRingtone(context, alarmUri)
+            ringtone?.play()
+
+            // الإنذار سيستمر لمدة 5 ثواني ثم يتوقف
+            delay(5000)
+            ringtone?.stop()
+            isAlarmTriggered = false
+        }
+    }
+
+    // 3. تصميم واجهة المستخدم
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -123,17 +161,17 @@ fun GuardScreen(modifier: Modifier = Modifier) {
         )
         
         Text(
-            text = "سيقوم التطبيق بتنبيهك عند لمس هاتفك أو تحريكه.",
+            text = "أبقِ التطبيق مفتوحاً على هذه الشاشة. سيتم إطلاق إنذار عند محاولة أي شخص لمس أو تحريك هاتفك.",
             fontSize = 16.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 64.dp),
             textAlign = TextAlign.Center
         )
 
-        val statusText = if (isGuardActive) "الحارس نشط" else "الحارس متوقف"
+        val statusText = if (isAlarmTriggered) "🚨 إنذار 🚨" else if (isGuardActive) "الحارس يراقب الآن" else "الحارس متوقف"
         val buttonText = if (isGuardActive) "إيقاف الحارس" else "تفعيل الحارس"
-        val containerColor = if (isGuardActive) Color(0xFFBA1A1A) else MaterialTheme.colorScheme.primaryContainer
-        val contentColor = if (isGuardActive) Color.White else MaterialTheme.colorScheme.onPrimaryContainer
+        val containerColor = if (isAlarmTriggered || isGuardActive) Color(0xFFBA1A1A) else MaterialTheme.colorScheme.primaryContainer
+        val contentColor = if (isAlarmTriggered || isGuardActive) Color.White else MaterialTheme.colorScheme.onPrimaryContainer
 
         Box(
             modifier = Modifier
@@ -143,7 +181,7 @@ fun GuardScreen(modifier: Modifier = Modifier) {
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = if (isGuardActive) "مفعل" else "متوقف",
+                text = if (isAlarmTriggered) "إنذار!" else if (isGuardActive) "مفعل" else "متوقف",
                 fontSize = 36.sp,
                 fontWeight = FontWeight.Bold,
                 color = contentColor
@@ -155,8 +193,8 @@ fun GuardScreen(modifier: Modifier = Modifier) {
         Text(
             text = statusText,
             fontSize = 24.sp,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onBackground
+            fontWeight = FontWeight.Bold,
+            color = if (isAlarmTriggered) Color.Red else MaterialTheme.colorScheme.onBackground
         )
 
         Spacer(modifier = Modifier.height(48.dp))
@@ -164,23 +202,13 @@ fun GuardScreen(modifier: Modifier = Modifier) {
         Button(
             onClick = {
                 isGuardActive = !isGuardActive
-                val intent = Intent(context, GuardService::class.java)
-                if (isGuardActive) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        context.startForegroundService(intent)
-                    } else {
-                        context.startService(intent)
-                    }
-                } else {
-                    intent.action = "STOP_GUARD"
-                    context.startService(intent)
-                }
+                isAlarmTriggered = false
             },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = if (isGuardActive) Color(0xFFBA1A1A) else MaterialTheme.colorScheme.primary
+                containerColor = if (isGuardActive || isAlarmTriggered) Color(0xFFBA1A1A) else MaterialTheme.colorScheme.primary
             )
         ) {
             Text(text = buttonText, fontSize = 18.sp, color = Color.White)
