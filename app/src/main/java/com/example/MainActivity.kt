@@ -281,6 +281,7 @@ fun GuardScreen(modifier: Modifier = Modifier, initialStart: Boolean = false, on
     
     var activationDelay by remember { mutableStateOf(5) }
     var soundType by remember { mutableStateOf(RingtoneManager.TYPE_ALARM) }
+    var sensorDelay by remember { mutableStateOf(SensorManager.SENSOR_DELAY_NORMAL) }
     var showSettings by remember { mutableStateOf(false) }
     
     var ringtone by remember { mutableStateOf<android.media.Ringtone?>(null) }
@@ -377,7 +378,7 @@ fun GuardScreen(modifier: Modifier = Modifier, initialStart: Boolean = false, on
         if (isGuardActive) {
             try {
                 accelerometer?.let {
-                    sensorManager?.registerListener(listener, it, SensorManager.SENSOR_DELAY_NORMAL)
+                    sensorManager?.registerListener(listener, it, sensorDelay)
                 }
             } catch (e: Exception) {
                 isGuardActive = false
@@ -476,6 +477,20 @@ fun GuardScreen(modifier: Modifier = Modifier, initialStart: Boolean = false, on
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = soundType == RingtoneManager.TYPE_NOTIFICATION, onClick = { soundType = RingtoneManager.TYPE_NOTIFICATION })
                         Text("إشعار قصير (Notification)")
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("استهلاك البطارية (سرعة الاستشعار):", fontWeight = FontWeight.SemiBold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = sensorDelay == SensorManager.SENSOR_DELAY_UI, onClick = { sensorDelay = SensorManager.SENSOR_DELAY_UI })
+                        Text("عالي الدقة (سريع)")
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = sensorDelay == SensorManager.SENSOR_DELAY_NORMAL, onClick = { sensorDelay = SensorManager.SENSOR_DELAY_NORMAL })
+                        Text("عادي (متوازن)")
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = sensorDelay == 500000, onClick = { sensorDelay = 500000 })
+                        Text("توفير الطاقة (بطيء قليلاً)")
                     }
                 }
             },
