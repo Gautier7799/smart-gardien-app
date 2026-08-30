@@ -1,5 +1,7 @@
 package com.example
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ShortcutInfo
@@ -19,7 +21,9 @@ import android.util.Log
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -36,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationCompat
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.delay
 
@@ -43,10 +48,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // إعداد اختصار التطبيق (عند الضغط مطولاً على الأيقونة)
         setupAppShortcut()
+        createNotificationChannel(this)
 
-        // التحقق مما إذا تم فتح التطبيق عبر الاختصار السريع
         val startActivated = intent?.action == "ACTION_ACTIVATE_GUARD"
 
         try {
@@ -89,14 +93,25 @@ class MainActivity : ComponentActivity() {
                     })
                     .build()
                 shortcutManager?.dynamicShortcuts = listOf(shortcut)
-            } catch (e: Exception) {
-                // تجاهل إذا لم يدعم الهاتف الاختصارات
+            } catch (e: Exception) {}
+        }
+    }
+
+    private fun createNotificationChannel(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val name = "تنبيهات الحارس"
+            val descriptionText = "إشعارات عند محاولة تحريك الهاتف"
+            val importance = NotificationManager.IMPORTANCE_HIGH
+            val channel = NotificationChannel("guard_channel", name, importance).apply {
+                description = descriptionText
             }
+            val notificationManager: NotificationManager =
+                context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.createNotificationChannel(channel)
         }
     }
 }
 
-// دالة إرسال الإشعار إلى الساعة الذكية عبر بروتوكول Wearable Data Layer
 fun sendAlertToWatch(context: Context) {
     try {
         val nodeClient = Wearable.getNodeClient(context)
@@ -104,24 +119,12 @@ fun sendAlertToWatch(context: Context) {
         val alertPath = "/guard_alarm"
         val message = "🚨 إنذار! تم تحريك هاتفك 🚨".toByteArray()
 
-        // البحث عن الأجهزة (الساعات) المتصلة
         nodeClient.connectedNodes.addOnSuccessListener { nodes ->
             for (node in nodes) {
-                // إرسال الرسالة لكل ساعة متصلة
                 messageClient.sendMessage(node.id, alertPath, message)
-                    .addOnSuccessListener {
-                        Log.d("WearableAlert", "تم إرسال التنبيه بنجاح للساعة: ${node.displayName}")
-                    }
-                    .addOnFailureListener { e ->
-                        Log.e("WearableAlert", "فشل إرسال التنبيه للساعة", e)
-                    }
             }
-        }.addOnFailureListener {
-            Log.e("WearableAlert", "لم يتم العثور على ساعات متصلة")
         }
-    } catch (e: Exception) {
-        Log.e("WearableAlert", "خطأ في الاتصال بخدمات Wearable", e)
-    }
+    } catch (e: Exception) {}
 }
 
 @Composable
@@ -131,14 +134,23 @@ fun GuardScreen(modifier: Modifier = Modifier, initialStart: Boolean = false, on
     var isCountingDown by remember { mutableStateOf(initialStart) }
     var remainingTime by remember { mutableStateOf(0) }
     
-    // إعدادات التطبيق
     var activationDelay by remember { mutableStateOf(5) }
     var soundType by remember { mutableStateOf(RingtoneManager.TYPE_ALARM) }
     var showSettings by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
 
-    // نظام العد التنازلي قبل التفعيل
+    // طلب إذن الإشعارات في أندرويد 13 وما فوق
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted -> /* تم التعامل مع الإذن */ }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     LaunchedEffect(isCountingDown) {
         if (isCountingDown) {
             remainingTime = activationDelay
@@ -216,8 +228,20 @@ fun GuardScreen(modifier: Modifier = Modifier, initialStart: Boolean = false, on
 
     LaunchedEffect(isAlarmTriggered) {
         if (isAlarmTriggered) {
-            // ---> إرسال تنبيه للساعة الذكية فوراً <---
             sendAlertToWatch(context)
+
+            // إرسال الإشعار المنبثق للهاتف
+            try {
+                val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                val notification = NotificationCompat.Builder(context, "guard_channel")
+                    .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                    .setContentTitle("🚨 تحذير أمني! 🚨")
+                    .setContentText("تم تحريك هاتفك! الإنذار يعمل الآن.")
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setAutoCancel(true)
+                    .build()
+                notificationManager.notify(1, notification)
+            } catch (e: Exception) {}
 
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -249,14 +273,13 @@ fun GuardScreen(modifier: Modifier = Modifier, initialStart: Boolean = false, on
         }
     }
 
-    // واجهة الإعدادات المنبثقة
     if (showSettings) {
         AlertDialog(
             onDismissRequest = { showSettings = false },
             title = { Text("إعدادات الحارس", fontWeight = FontWeight.Bold) },
             text = {
                 Column {
-                    Text("مهلة التفعيل (لترك الهاتف): $activationDelay ثوانٍ", fontWeight = FontWeight.SemiBold)
+                    Text("مهلة التفعيل: $activationDelay ثوانٍ", fontWeight = FontWeight.SemiBold)
                     Slider(
                         value = activationDelay.toFloat(),
                         onValueChange = { activationDelay = it.toInt() },
