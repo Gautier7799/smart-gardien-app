@@ -15,6 +15,7 @@ import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.util.Log
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -35,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
@@ -91,6 +93,34 @@ class MainActivity : ComponentActivity() {
                 // تجاهل إذا لم يدعم الهاتف الاختصارات
             }
         }
+    }
+}
+
+// دالة إرسال الإشعار إلى الساعة الذكية عبر بروتوكول Wearable Data Layer
+fun sendAlertToWatch(context: Context) {
+    try {
+        val nodeClient = Wearable.getNodeClient(context)
+        val messageClient = Wearable.getMessageClient(context)
+        val alertPath = "/guard_alarm"
+        val message = "🚨 إنذار! تم تحريك هاتفك 🚨".toByteArray()
+
+        // البحث عن الأجهزة (الساعات) المتصلة
+        nodeClient.connectedNodes.addOnSuccessListener { nodes ->
+            for (node in nodes) {
+                // إرسال الرسالة لكل ساعة متصلة
+                messageClient.sendMessage(node.id, alertPath, message)
+                    .addOnSuccessListener {
+                        Log.d("WearableAlert", "تم إرسال التنبيه بنجاح للساعة: ${node.displayName}")
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e("WearableAlert", "فشل إرسال التنبيه للساعة", e)
+                    }
+            }
+        }.addOnFailureListener {
+            Log.e("WearableAlert", "لم يتم العثور على ساعات متصلة")
+        }
+    } catch (e: Exception) {
+        Log.e("WearableAlert", "خطأ في الاتصال بخدمات Wearable", e)
     }
 }
 
@@ -186,6 +216,9 @@ fun GuardScreen(modifier: Modifier = Modifier, initialStart: Boolean = false, on
 
     LaunchedEffect(isAlarmTriggered) {
         if (isAlarmTriggered) {
+            // ---> إرسال تنبيه للساعة الذكية فوراً <---
+            sendAlertToWatch(context)
+
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
