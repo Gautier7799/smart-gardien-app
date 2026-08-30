@@ -1,60 +1,54 @@
-package com.example
+package com.example.smartgardien
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.Service
+import android.app.*
 import android.content.Context
 import android.content.Intent
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import android.media.AudioAttributes
+import android.media.Ringtone
 import android.media.RingtoneManager
-import android.os.Build
-import android.os.IBinder
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
-import android.util.Log
+import android.os.*
 import androidx.core.app.NotificationCompat
+import kotlin.math.sqrt
 
-class GuardService : Service(), SensorEventListener {
+class GardienService : Service(), SensorEventListener {
+
     private lateinit var sensorManager: SensorManager
     private var accelerometer: Sensor? = null
     
-    private var isGuardActive = false
-    private var initialX = 0f
-    private var initialY = 0f
-    private var initialZ = 0f
-    private var isInitialized = false
-
-    companion object {
-        const val CHANNEL_ID = "GuardServiceChannel"
-        const val NOTIFICATION_ID = 1
-        const val ALARM_CHANNEL_ID = "GuardAlarmChannel"
-        const val MOVEMENT_THRESHOLD = 2.5f
-    }
+    private var ringtone: Ringtone? = null
+    private var vibrator: Vibrator? = null
+    
+    private val CHANNEL_ID = "GardienChannel"
+    private val MOVEMENT_THRESHOLD = 2.5f // حساسية الحركة (يمكن تعديلها)
+    private var isAlarmTriggered = false
 
     override fun onCreate() {
         super.onCreate()
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-        createNotificationChannels()
+        vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        
+        // إعداد صوت الإنذار الافتراضي
+        val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+        ringtone = RingtoneManager.getRingtone(applicationContext, alarmUri)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val action = intent?.action
-        if (action == "STOP_GUARD") {
-            stopGuard()
-            stopSelf()
-            return START_NOT_STICKY
-        }
+        createNotificationChannel()
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("حارس الهاتف نشط")
+            .setContentText("يتم الآن مراقبة حركة الهاتف...")
+            .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setOngoing(true)
+            .build()
 
-        startGuardForeground()
+        startForeground(1, notification)
         
-        isInitialized = false
-        isGuardActive = true
+        // تسجيل المستشعر لبدء القراءة
         accelerometer?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
         }
@@ -62,121 +56,58 @@ class GuardService : Service(), SensorEventListener {
         return START_STICKY
     }
 
-    private fun startGuardForeground() {
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("حارس الهاتف نشط")
-            .setContentText("يقوم الحارس بمراقبة هاتفك الآن.")
-            .setSmallIcon(android.R.drawable.ic_lock_lock)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
-
-        startForeground(NOTIFICATION_ID, notification)
-    }
-
-    private fun stopGuard() {
-        isGuardActive = false
-        sensorManager.unregisterListener(this)
-    }
-
-    override fun onBind(intent: Intent?): IBinder? {
-        return null
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        stopGuard()
-    }
-
     override fun onSensorChanged(event: SensorEvent?) {
-        if (!isGuardActive || event == null) return
+        if (event == null || isAlarmTriggered) return
 
         if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
             val x = event.values[0]
             val y = event.values[1]
             val z = event.values[2]
 
-            if (!isInitialized) {
-                initialX = x
-                initialY = y
-                initialZ = z
-                isInitialized = true
-            } else {
-                val deltaX = Math.abs(initialX - x)
-                val deltaY = Math.abs(initialY - y)
-                val deltaZ = Math.abs(initialZ - z)
+            // حساب قوة الجاذبية الكلية
+            val gForce = sqrt(x*x + y*y + z*z) - SensorManager.GRAVITY_EARTH
 
-                if (deltaX > MOVEMENT_THRESHOLD || deltaY > MOVEMENT_THRESHOLD || deltaZ > MOVEMENT_THRESHOLD) {
-                    triggerAlarm()
-                    isInitialized = false
-                }
+            // إذا تحرك الهاتف بقوة أكبر من الحد المسموح
+            if (Math.abs(gForce) > MOVEMENT_THRESHOLD) {
+                triggerAlarm()
             }
         }
-    }
-
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
     }
 
     private fun triggerAlarm() {
-        Log.d("GuardService", "Movement detected! Triggering alarm.")
+        isAlarmTriggered = true
         
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-        
-        val alarmNotification = NotificationCompat.Builder(this, ALARM_CHANNEL_ID)
-            .setContentTitle("⚠️ تنبيه أمني!")
-            .setContentText("شخص ما يقوم بتحريك هاتفك الآن!")
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setAutoCancel(true)
-            .setSound(alarmUri)
-            .setVibrate(longArrayOf(0, 500, 200, 500, 200, 500))
-            .build()
-            
-        notificationManager.notify(2, alarmNotification)
-        vibratePhone()
-    }
-    
-    private fun vibratePhone() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-            val vibrator = vibratorManager.defaultVibrator
-            vibrator.vibrate(VibrationEffect.createOneShot(1000, VibrationEffect.DEFAULT_AMPLITUDE))
+        // تشغيل الصوت تكرارياً
+        ringtone?.play()
+
+        // تشغيل الاهتزاز بنمط متكرر
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 500, 500), 0))
         } else {
-            val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
             @Suppress("DEPRECATION")
-            vibrator.vibrate(1000)
+            vibrator?.vibrate(longArrayOf(0, 500, 500), 0)
         }
     }
 
-    private fun createNotificationChannels() {
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
+    override fun onDestroy() {
+        sensorManager.unregisterListener(this)
+        ringtone?.stop()
+        vibrator?.cancel()
+        super.onDestroy()
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val serviceChannel = NotificationChannel(
-                CHANNEL_ID,
-                "خدمة حارس الهاتف",
+            val channel = NotificationChannel(
+                CHANNEL_ID, "Smart Gardien Service",
                 NotificationManager.IMPORTANCE_LOW
             )
-
-            val alarmChannel = NotificationChannel(
-                ALARM_CHANNEL_ID,
-                "تنبيهات الحارس",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "قناة تنبيهات عند اكتشاف حركة مريبة"
-                enableVibration(true)
-                vibrationPattern = longArrayOf(0, 500, 200, 500, 200, 500)
-                
-                val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                val audioAttributes = AudioAttributes.Builder()
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .setUsage(AudioAttributes.USAGE_ALARM)
-                    .build()
-                setSound(alarmUri, audioAttributes)
-            }
-
             val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(serviceChannel)
-            manager.createNotificationChannel(alarmChannel)
+            manager?.createNotificationChannel(channel)
         }
     }
 }
