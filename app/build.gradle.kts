@@ -1,8 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    // تفعيل الإضافة الجديدة الإلزامية لإصدارات كوتلن الحديثة
-    id("org.jetbrains.kotlin.plugin.compose") version "2.0.0" 
+    id("org.jetbrains.kotlin.plugin.compose") version "2.0.0"
 }
 
 android {
@@ -31,26 +30,27 @@ android {
             )
         }
     }
+    
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
-    }
-    
-    // تم استبدال خيارات kotlinOptions بالطريقة الحديثة المدعومة
-    compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8)
     }
 
     buildFeatures {
         compose = true
     }
-    
-    // تم حذف بلوك composeOptions القديم نهائياً لأنه مدمج تلقائياً الآن
 
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+    }
+}
+
+// الطريقة الصحيحة والمتوافقة لتحديد إصدار جافا لكوتلن دون التسبب في خطأ البناء
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    kotlinOptions {
+        jvmTarget = "1.8"
     }
 }
 
